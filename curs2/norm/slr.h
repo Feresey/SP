@@ -1,0 +1,144 @@
+#ifndef SLR_H
+#define SLR_H
+#include "kngramma.h"
+
+class tLR {
+public:
+    const tGramma& gr;
+
+    typedef int tState;
+
+    tLR(const tGramma& agr)
+        : gr(agr){};
+
+    static tState pack(tGramma::tSymb left, tGramma::tAltind ialt)
+    {
+        return -((ialt & 127) * 256 + left);
+    }
+
+    static tGramma::tRule unpack(tState a)
+    {
+        tState t = -a;
+        return tGramma::tRule(static_cast<unsigned char>(t & 255), static_cast<unsigned char>(t >> 8));
+    }
+
+    void add(tState from, tGramma::tSymb c, tState to)
+    {
+        size_t sz = 1 + static_cast<size_t>(from);
+        if (sz > table.size())
+            table.resize(sz);
+        table[static_cast<size_t>(from)].insert(std::make_pair(c, to));
+    }
+
+    void add(tState from, const tGramma::tSymbstrset& follow,
+        tGramma::tSymb left, tGramma::tAltind ialt)
+    {
+        tGramma::tSymbstr s = follow[left];
+        tState to = pack(left, ialt);
+        size_t sz = s.size();
+        for (size_t i = 0; i < sz; ++i)
+            add(from, s[i], to);
+    }
+
+    tState go(tState from, tGramma::tSymb c)
+    {
+        if (table.empty() || from < 0)
+            return 0;
+        tTransMap::iterator iter;
+        tTransMap& trans = table[static_cast<size_t>(from)];
+
+        if ((iter = trans.find(c)) == trans.end())
+            return 0;
+        return iter->second;
+    }
+
+    tGramma::tSymbstr expected_tokens(tState state)
+    {
+        tGramma::tSymbstr tmp;
+        if (state >= table.size())
+            return tmp;
+        tTransMap::iterator iter;
+        tTransMap& trans = table[static_cast<size_t>(state)];
+        for (iter = trans.begin(); iter != trans.end(); ++iter) {
+            tGramma::tSymb c = iter->first;
+            if (gr.terminal(c))
+                tmp += c;
+            else
+                break;
+        }
+        return tmp;
+    }
+
+    void clear()
+    {
+        table.clear();
+    }
+
+    size_t size() const { return table.size(); }
+
+    typedef std::multimap<tGramma::tSymb, tState> tTransMap;
+    typedef std::vector<tTransMap> tStateTable;
+
+    tStateTable table;
+};
+
+class tLRI {
+public:
+    typedef unsigned char tPoint;
+    tGramma::tSymb left;
+    tGramma::tAltind ialt;
+    tPoint point;
+    tGramma::tSymb smb;
+
+    tLRI(tGramma::tSymb aleft = 0, tGramma::tAltind aialt = 0,
+        tPoint apoint = 0, tGramma::tSymb asmb = 0)
+        : left(aleft)
+        , ialt(aialt)
+        , point(apoint)
+        , smb(asmb){};
+
+    tLRI& first_point(tGramma gr)
+    {
+        const tGramma::tSymbstr& rp = gr.rightPart(left, ialt);
+        point = 0;
+        smb = rp[0];
+        return *this;
+    }
+
+    tLRI& next_point(tGramma gr)
+    {
+        const tGramma::tSymbstr& rp = gr.rightPart(left, ialt);
+        size_t sz = rp.size();
+        if (point >= sz)
+            return *this;
+        ++point;
+        smb = (point < sz ? rp[point] : 0);
+        return *this;
+    }
+
+    bool operator<(const tLRI& y) const
+    {
+        return (smb < y.smb)
+            || ((smb == y.smb) && ((left < y.left) || ((left == y.left) && ((ialt < y.ialt) || ((ialt == y.ialt) && (point < y.point))))));
+    }
+
+    bool operator==(const tLRI& y) const
+    {
+        return (smb == y.smb) && (left == y.left) && (ialt == y.ialt) && (point == y.point);
+    }
+};
+
+typedef std::vector<tLRI> tLRitems;
+void sort_items(tLRitems& items);
+void insert_item(tLRitems& items, const tLRI& item);
+void add_to_closure(const tGramma& gr,
+    tLRitems& closure, tGramma::tSymb a);
+void make_closure(const tGramma& gr, tLRitems& closure);
+
+typedef std::vector<tLRitems> tLRkernels;
+bool operator==(const tLRitems& x, const tLRitems& y);
+size_t insert_kernel(tLRkernels& kernels, const tLRitems& kernel);
+
+void SLRbuild(tLR& lr);
+
+#endif

@@ -1,0 +1,12 @@
+*
+!*.cpp
+!*.h
+!*.ss
+!*.hpp
+!*.txt
+!*.rtf
+!Makefile
+!build
+!build/Makefile
+.*
+!.gitignore
